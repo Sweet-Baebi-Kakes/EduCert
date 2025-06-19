@@ -36,7 +36,7 @@
   (let ((institution-data {
     name: name,
     is-verified: false,
-    registration-date: block-height
+    registration-date: stacks-block-height
   }))
     (map-set institutions { institution-address: tx-sender } institution-data)
     (ok true)
@@ -78,7 +78,7 @@
               student-address: student,
               institution: tx-sender,
               course-name: course-name,
-              completion-date: block-height,
+              completion-date: stacks-block-height,
               grade: grade,
               is-revoked: false
             }
@@ -126,4 +126,16 @@
 ;; Get institution info
 (define-read-only (get-institution (institution principal))
   (map-get? institutions { institution-address: institution })
+)
+
+;; Get certificate by ID
+(define-read-only (get-certificate (certificate-id uint))
+  (map-get? certificates { certificate-id: certificate-id })
+)
+
+;; Get certificates by student
+(define-read-only (get-student-certificates (student principal))
+  ;; Note: This is a simplified version. In practice, you might want to maintain
+  ;; a separate map or use events for efficient querying
+  (ok "Use events or maintain separate mapping for efficient student certificate lookup")
 )
