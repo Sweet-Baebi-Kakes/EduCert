@@ -6,6 +6,7 @@
 (define-constant err-not-found (err u101))
 (define-constant err-already-exists (err u102))
 (define-constant err-unauthorized (err u103))
+(define-constant err-invalid-input (err u104))
 
 ;; Data structures
 (define-map certificates
@@ -31,21 +32,40 @@
 
 (define-data-var next-certificate-id uint u1)
 
+;; Input validation functions
+(define-private (is-valid-name (name (string-ascii 100)))
+  (> (len name) u0)
+)
+
+(define-private (is-valid-grade (grade (string-ascii 10)))
+  (> (len grade) u0)
+)
+
 ;; Register an educational institution
 (define-public (register-institution (name (string-ascii 100)))
-  (let ((institution-data {
-    name: name,
-    is-verified: false,
-    registration-date: stacks-block-height
-  }))
-    (map-set institutions { institution-address: tx-sender } institution-data)
-    (ok true)
+  (begin
+    ;; Validate input
+    (asserts! (is-valid-name name) err-invalid-input)
+
+    (let ((institution-data {
+      name: name,
+      is-verified: false,
+      registration-date: stacks-block-height
+    }))
+      ;; Check if institution is already registered
+      (asserts! (is-none (map-get? institutions { institution-address: tx-sender })) err-already-exists)
+      (map-set institutions { institution-address: tx-sender } institution-data)
+      (ok true)
+    )
   )
 )
 
 ;; Verify an institution (only contract owner)
 (define-public (verify-institution (institution principal))
-  (if (is-eq tx-sender contract-owner)
+  (begin
+    ;; Check if caller is contract owner
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+
     (match (map-get? institutions { institution-address: institution })
       institution-data
       (begin
@@ -57,7 +77,6 @@
       )
       err-not-found
     )
-    err-owner-only
   )
 )
 
@@ -67,28 +86,34 @@
   (course-name (string-ascii 100))
   (grade (string-ascii 10))
 )
-  (let ((certificate-id (var-get next-certificate-id)))
-    (match (map-get? institutions { institution-address: tx-sender })
-      institution-data
-      (if (get is-verified institution-data)
-        (begin
-          (map-set certificates
-            { certificate-id: certificate-id }
-            {
-              student-address: student,
-              institution: tx-sender,
-              course-name: course-name,
-              completion-date: stacks-block-height,
-              grade: grade,
-              is-revoked: false
-            }
+  (begin
+    ;; Validate inputs
+    (asserts! (is-valid-name course-name) err-invalid-input)
+    (asserts! (is-valid-grade grade) err-invalid-input)
+
+    (let ((certificate-id (var-get next-certificate-id)))
+      (match (map-get? institutions { institution-address: tx-sender })
+        institution-data
+        (if (get is-verified institution-data)
+          (begin
+            (map-set certificates
+              { certificate-id: certificate-id }
+              {
+                student-address: student,
+                institution: tx-sender,
+                course-name: course-name,
+                completion-date: stacks-block-height,
+                grade: grade,
+                is-revoked: false
+              }
+            )
+            (var-set next-certificate-id (+ certificate-id u1))
+            (ok certificate-id)
           )
-          (var-set next-certificate-id (+ certificate-id u1))
-          (ok certificate-id)
+          err-unauthorized
         )
-        err-unauthorized
+        err-not-found
       )
-      err-not-found
     )
   )
 )
@@ -109,15 +134,15 @@
 (define-public (revoke-certificate (certificate-id uint))
   (match (map-get? certificates { certificate-id: certificate-id })
     certificate-data
-    (if (is-eq tx-sender (get institution certificate-data))
-      (begin
-        (map-set certificates
-          { certificate-id: certificate-id }
-          (merge certificate-data { is-revoked: true })
-        )
-        (ok true)
+    (begin
+      ;; Check if caller is the issuing institution
+      (asserts! (is-eq tx-sender (get institution certificate-data)) err-unauthorized)
+
+      (map-set certificates
+        { certificate-id: certificate-id }
+        (merge certificate-data { is-revoked: true })
       )
-      err-unauthorized
+      (ok true)
     )
     err-not-found
   )
